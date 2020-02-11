@@ -125,7 +125,7 @@
     <string name="mtp_locked_section">Kasa</string>
     <string name="mz_upgrade_tips_title">Sistem güncelleme</string>
     <string name="mz_upgrade_tips">Telefonunuz yeniden başlatılacak. Lütfen pil gücünün yeterli olduğundan emin olun.</string>
-    <string name="mz_low_battery_upgrade_tips">Güncelleme, telefonunuz yeniden başlatıldıktan sonra yüklenecektir. Geçerli piliniz zayıf. Lütfen şarj cihazınızı bağlayın ve Şimdi Yeniden Başlat'a dokunun.</string>
+    <string name="mz_low_battery_upgrade_tips"> Geçerli piliniz zayıf. Lütfen şarj cihazınızı bağlayın ve şimdi yeniden başlata dokunun.</string>
     <string name="mz_upgrade_immediately">TAMAM</string>
     <string name="mz_upgrade_later">İptal</string>
     <string name="mz_permlab_networkUpgrade">Ağ güncelleme</string>
