@@ -211,12 +211,12 @@
     <string name="mz_notification_ongoing_pppoe_format">PPPoE bağlı (%s)</string>
     <string name="local_number">Yerel numara</string>
     <string name="launcher_choose_hint">Ayarlama / Özelleştirme varsayılan Başlatıcıyı ayarlama</string>
-    <string name="chooseDefLauncher">varsayılan Başlatıcıyı seç</string>
+    <string name="chooseDefLauncher">Varsayılan Başlatıcıyı seç</string>
     <string name="confirm_access_password_tip">Lütfen şifreyi giriniz</string>
     <string name="confirm_password_error">Yanlış şifre, lütfen tekrar girin</string>
     <string name="forget_pwd">Parolanızı mı unuttunuz?</string>
     <string name="mz_fp_lockout">Lütfen içinde parmak izini tekrar doğrulayın %d saniye</string>
-    <string name="global_action_power_restart">Tekrar başlat</string>
+    <string name="global_action_power_restart">Yeniden Başlat</string>
     <string name="permlab_read_protect_file_list">Kilitli katalogları okuyun</string>
     <string name="permdesc_read_protect_file_list">Bu uygulamaya kilitli katalog listesini okuma izni verir.</string>
     <string name="permlab_modify_protect_file_list">Kilitli katalogları değiştirme</string>
