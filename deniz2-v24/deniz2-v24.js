@@ -23,7 +23,8 @@ var Deniz2 = (function () {
     derinlik: 3.0,   /* derin mavi, köpük mesafesinin kaç katında başlar */
     tasma: 0.05,     /* ağın ekrandan en az taşma payı */
     ag: [40, 56],    /* ağ bütçesi: toplam bölme sayısı ag[0]*ag[1]; v24 bunu ekran oranına göre yatay/dikey paylaştırır */
-    kalite: -1,      /* v24: -1 = kendiliğinden; 0..5 = kaliteAdim içindeki sabit kademe */
+    kalite: -1,      /* v24: -1 = kendiliğinden; 0..5 = kaliteAdim içindeki sabit kademe. Çalışırken de değiştirilebilir */
+    kararli: 20,     /* bağlam kaybından sonra kaç saniye sorunsuz çalışınca yeniden başlatma hakkı (2) tazelenir */
     kaliteAdim: [[1, 2], [0.8, 2], [0.8, 1], [0.64, 1], [0.64, 0], [0.52, 0]] /* [çözünürlük çarpanı, shader düzeyi] */ };
   var PAL = {
     gun:   { derin: [0.06, 0.47, 0.82], orta: [0.10, 0.67, 0.90], sig: [0.45, 0.92, 0.90], kum: [0.86, 0.95, 0.80], gok: [0.80, 0.93, 1.00], gunes: [1.00, 0.98, 0.90] },
@@ -31,7 +32,9 @@ var Deniz2 = (function () {
     aksam: { derin: [0.13, 0.40, 0.76], orta: [0.29, 0.64, 0.86], sig: [0.64, 0.90, 0.86], kum: [0.95, 0.90, 0.78], gok: [1.00, 0.84, 0.78], gunes: [1.00, 0.85, 0.70] }
   };
   var GENLIK = 0.134; /* dört dalganın genlik toplamı (desen birimi); köşe shader'ındaki değerlerle aynı olmalı */
-  var st = null, yeniden = 0, bek = null;
+  var st = null, yeniden = 0, bek = null, sonHata = '';
+  /* kalite ayarını oku: sayı değilse ya da eksiyse -1 (kendiliğinden); değilse 0..son kademe arasına sıkıştır */
+  function kaliteOku(v) { if (typeof v !== 'number' || v !== v || v < 0) return -1; return Math.min(AYAR.kaliteAdim.length - 1, Math.round(v)); }
 
   var VS = [
     'uniform float uT; uniform vec2 uBoy; uniform float uDesen; uniform float uDalga; uniform vec2 uTasma;',
@@ -111,7 +114,7 @@ var Deniz2 = (function () {
     '  col = mix(col, uOrta, smoothstep(0.24, 0.66, dd));',
     '  col = mix(col, uDerin, smoothstep(0.30, 1.0, dd) * (0.25 + 0.75 * der) * (0.72 + 0.28 * buyuk));',
     '  col = mix(col, uDerin * vec3(0.78, 0.86, 0.95), der * der * 0.55 * (0.5 + 0.5 * buyuk));',
-    '  float kumluk = smoothstep(0.36, 0.0, dd); col = mix(col, uKum, kumluk * kumluk * (0.50 + 0.16 * a));',
+    '  float kumluk = 1.0 - smoothstep(0.0, 0.36, dd); col = mix(col, uKum, kumluk * kumluk * (0.50 + 0.16 * a));',
     /* dalgaya bağlı ışık: tepe aydınlık ve hafif turkuaz, çukur biraz koyu */
     '  col *= 0.93 + 0.10 * a + vD.z * 0.09; col += (uSig - col) * max(vD.z, 0.0) * 0.07;',
     /* su altı ışık ağı: yüzey eğimiyle kırılır. Sığda ince ve belirgin, derinde iri ve silik. Geniş gürültü deseni büker; aynı şekil yan yana yinelenmez */
@@ -135,6 +138,7 @@ var Deniz2 = (function () {
     /* kara altı: sığ kumluk */
     '  col = mix(col, mix(uSig, uKum, 0.55) + c * 0.25, kara);',
     /* köpük. Su yüksekken (dalga tepesi) kıyı çizgisi biraz açılır: gk. Kara maskesi oynamaz, adalar yerinde kalır.
+       Not: smoothstep'te ilk eşik ikinciden küçük olmalı (GLSL'de tersi tanımsız); azalan geçişler 1.0 - smoothstep(küçük, büyük, x) diye yazılır.
        1) kıyıda kırılan şerit: dalga çizgisi kıyıya varınca genişler, sonra çekilir; yer yer hiç yoktur
        2) kıyıya yürüyen çizgiler: kıyıya yaklaştıkça sıklaşır, gürültüyle bükülür ve kopar
        3) kırık parçalar 4) ince dantel 5) köpüğün suya karıştığı süt mavisi hale */
@@ -148,15 +152,15 @@ var Deniz2 = (function () {
     '  n5 = n5 * 0.75 + n(p * 13.0 - vec2(t * 0.2, t * 0.25)) * 0.25;',
     '#endif',
     '  float w1 = 0.12 + 0.13 * cek;',
-    '  float serit = smoothstep(w1, w1 * 0.30, gk) * smoothstep(0.36, 0.72, n5 + (1.0 - gk / w1) * (0.08 + 0.50 * yog + 0.12 * cek)) * smoothstep(0.16, 0.40, kb + 0.25 * yog);',
+    '  float serit = (1.0 - smoothstep(w1 * 0.30, w1, gk)) * smoothstep(0.36, 0.72, n5 + (1.0 - gk / w1) * (0.08 + 0.50 * yog + 0.12 * cek)) * smoothstep(0.16, 0.40, kb + 0.25 * yog);',
     '  float gw = gk + (n3 - 0.5) * 0.10;',
     '  float bant = fract(pow(max(gw, 0.0), 0.72) * 2.6 + faz);',
-    '  float cizgi = smoothstep(0.0, 0.07, bant) * smoothstep(0.20 + 0.20 * n5, 0.07, bant);',
-    '  cizgi *= smoothstep(0.66, 0.10, gk) * smoothstep(0.30, 0.54, n3 + (1.0 - gk) * 0.34) * (0.25 + 0.75 * yog);',
-    '  float parca = smoothstep(0.34, 0.50, n(p * 7.0 - vec2(t * 0.20, t * 0.1)) * n(p * 3.3 + t * 0.10)) * smoothstep(0.50, 0.0, gk) * (0.35 + 0.65 * yog);',
-    '  float dantel = smoothstep(0.30, 0.95, c1) * smoothstep(0.50, 0.04, gk) * (0.22 + 0.44 * yog);',
+    '  float cizgi = smoothstep(0.0, 0.07, bant) * (1.0 - smoothstep(0.07, 0.20 + 0.20 * n5, bant));',
+    '  cizgi *= (1.0 - smoothstep(0.10, 0.66, gk)) * smoothstep(0.30, 0.54, n3 + (1.0 - gk) * 0.34) * (0.25 + 0.75 * yog);',
+    '  float parca = smoothstep(0.34, 0.50, n(p * 7.0 - vec2(t * 0.20, t * 0.1)) * n(p * 3.3 + t * 0.10)) * (1.0 - smoothstep(0.0, 0.50, gk)) * (0.35 + 0.65 * yog);',
+    '  float dantel = smoothstep(0.30, 0.95, c1) * (1.0 - smoothstep(0.04, 0.50, gk)) * (0.22 + 0.44 * yog);',
     '  float deniz = 1.0 - kara * 0.85, yg = clamp(uYogun, 0.0, 1.0);',
-    '  col = mix(col, uSig * 0.6 + 0.42, smoothstep(0.60, 0.0, gk) * (0.10 + 0.14 * yog) * deniz * yg);',
+    '  col = mix(col, uSig * 0.6 + 0.42, (1.0 - smoothstep(0.0, 0.60, gk)) * (0.10 + 0.14 * yog) * deniz * yg);',
     '  float kopuk = clamp(serit + cizgi * 1.25 + parca * 0.55 + dantel, 0.0, 1.0) * deniz * yg;',
     '  col = mix(col, mix(vec3(0.97, 0.995, 1.0), uGunes, 0.2), kopuk);',
     '  gl_FragColor = vec4(col, 1.0);',
@@ -217,10 +221,19 @@ var Deniz2 = (function () {
   /* bağlam kaybından sonra bekleyen yeniden başlatmayı iptal et */
   function bekIptal() { var b = bek; if (!b) return; bek = null; clearTimeout(b.zam); if (b.gor) document.removeEventListener('visibilitychange', b.gor); }
 
+  /* bağlam kaybından sonra yeniden başlatma: harita hâlâ sayfadaysa 1,5 sn sonra dener; sekme arkadaysa öne gelmesini bekler.
+     Hak en çok iki kezdir. Yeniden açılan deniz AYAR.kararli saniye sorunsuz çalışırsa hak tazelenir (baslat içinde);
+     hemen yeniden kaybeden bir cihazda en çok iki deneme yapılır, sonsuz döngü olmaz. */
+  function tekrarDene(H) { if (yeniden >= 2 || !H) return false; yeniden++;
+    var b = { zam: 0, gor: null }, dene = function () { if (bek !== b) return; if (st || !H.isConnected) { bekIptal(); return; }
+      if (document.hidden) { if (!b.gor) { b.gor = function () { if (!document.hidden) { document.removeEventListener('visibilitychange', b.gor); b.gor = null; b.zam = setTimeout(dene, 400); } }; document.addEventListener('visibilitychange', b.gor); } return; }
+      bekIptal(); try { baslat(H); } catch (e2) {} };
+    bek = b; b.zam = setTimeout(dene, 1500); return true; }
+
   function dur() {
     bekIptal();
     var s = st; if (!s) return; st = null; s.canli = false;
-    cancelAnimationFrame(s.r.raf); s.r.raf = 0; clearTimeout(s.zam); clearInterval(s.bekci);
+    cancelAnimationFrame(s.r.raf); s.r.raf = 0; clearTimeout(s.zam); clearTimeout(s.sagZam); clearInterval(s.bekci);
     try { if (s.ro) s.ro.disconnect(); } catch (e) {} try { if (s.io) s.io.disconnect(); } catch (e) {}
     s.cv.removeEventListener('webglcontextlost', s.kayip);
     if (s.uyan) document.removeEventListener('visibilitychange', s.uyan);
@@ -248,7 +261,7 @@ var Deniz2 = (function () {
       s.u = { uKiyi: { value: s.doku }, uBoy: { value: new T.Vector2(1, 1) }, uPiksel: { value: new T.Vector2(1, 1) }, uT: { value: 0 }, uDesen: { value: AYAR.desenPx },
         uDalga: { value: 1 }, uTasma: { value: new T.Vector2(0.05, 0.05) }, uKopuk: { value: 1 }, uYogun: { value: 1 }, uKostik: { value: 1 }, uParlama: { value: 1 }, uYansima: { value: 1 },
         uDerin: { value: V3(P.derin) }, uOrta: { value: V3(P.orta) }, uSig: { value: V3(P.sig) }, uKum: { value: V3(P.kum || P.sig) }, uGok: { value: V3(P.gok) }, uGunes: { value: V3(P.gunes) }, uGunesYer: { value: new T.Vector2(0.68, 0.30) } };
-      var L0 = AYAR.kaliteAdim, a0 = AYAR.kalite >= 0 ? Math.min(L0.length - 1, AYAR.kalite | 0) : 0; s.adim = a0; s.kalite = L0[a0][0]; s.sabit = AYAR.kalite >= 0;
+      var L0 = AYAR.kaliteAdim, kn0 = kaliteOku(AYAR.kalite), a0 = kn0 < 0 ? 0 : kn0; s.kn = kn0; s.adim = a0; s.kalite = L0[a0][0]; s.sabit = kn0 >= 0;
       s.mat = new T.ShaderMaterial({ uniforms: s.u, vertexShader: VS, fragmentShader: FS, defines: { KALITE: L0[a0][1] }, depthTest: false, depthWrite: false });
       s.geo = new T.PlaneGeometry(2, 2, AYAR.ag[0], AYAR.ag[1]); s.scene = new T.Scene(); s.cam = new T.OrthographicCamera(-1, 1, 1, -1, 0, 1);
       s.mesh = new T.Mesh(s.geo, s.mat); s.mesh.frustumCulled = false; s.scene.add(s.mesh);
@@ -269,14 +282,25 @@ var Deniz2 = (function () {
       u.uKopuk.value = Math.max(0.2, AYAR.kopuk); u.uYogun.value = AYAR.kopukYogun; u.uKostik.value = AYAR.kostik; u.uParlama.value = AYAR.parlama; u.uYansima.value = AYAR.yansima;
       renderer.render(s.scene, s.cam); };
     var kiyi = function () { if (st !== s) return; try { if (kiyiHaritasi(H, s.kc)) s.doku.needsUpdate = true; } catch (e) { s.kiyiHata = e; }
-      if (s.duragan || !s.r.raf) { try { ciz(); } catch (e) {} } };
-    /* three.js derleme hatasında hata fırlatmaz, yalnız konsola yazar. Çizimden sonra üç ayrı yoldan denetle:
-       bağlam kaybı, three.js tanılaması, doğrudan WebGL bağlama durumu. İlk açılışta bir de gerçekten piksel çizildi mi diye bakılır */
-    var saglam = function (ilk) { try { var g = renderer.getContext(); if (g.isContextLost()) return false; var pl = (renderer.info && renderer.info.programs) || []; if (!pl.length) return false;
-      for (var i = 0; i < pl.length; i++) { if (pl[i].diagnostics && pl[i].diagnostics.runnable === false) return false; if (pl[i].program && !g.getProgramParameter(pl[i].program, g.LINK_STATUS)) return false; }
-      if (ilk) { var px = new Uint8Array(4), w = g.drawingBufferWidth, h = g.drawingBufferHeight, top = 0, nk = [[0.5, 0.5], [0.2, 0.3], [0.8, 0.7]];
-        for (var j = 0; j < 3; j++) { g.readPixels(Math.floor(w * nk[j][0]), Math.floor(h * nk[j][1]), 1, 1, g.RGBA, g.UNSIGNED_BYTE, px); top += px[0] + px[1] + px[2]; }
-        if (!top && !g.isContextLost()) return false; } } catch (e) {} return true; };
+      if (s.duragan || !s.r.raf) guvenliCiz(); };
+    /* three.js derleme hatasında hata fırlatmaz, yalnız konsola yazar; çizimden sonra elle denetlenir.
+       Dönen değer boşsa sağlam; değilse neden: 'baglam' (bağlam kaybı), 'shader' (derleme / bağlama), 'cizim' (ilk karede piksel yok),
+       'denetim' (denetimin kendisi hata verdi). Beklenmeyen hata başarı sayılmaz. */
+    var denetim = function (ilk) { var g, i;
+      try { g = renderer.getContext(); if (!g || g.isContextLost()) return 'baglam'; } catch (e) { return 'baglam'; }
+      try { var pl = (renderer.info && renderer.info.programs) || []; if (!pl.length) return 'shader';
+        for (i = 0; i < pl.length; i++) { if (pl[i].diagnostics && pl[i].diagnostics.runnable === false) return 'shader';
+          if (pl[i].program && !g.getProgramParameter(pl[i].program, g.LINK_STATUS)) return g.isContextLost() ? 'baglam' : 'shader'; }
+      } catch (e) { return 'denetim'; }
+      if (ilk) { try { var px = new Uint8Array(4), w = g.drawingBufferWidth, h = g.drawingBufferHeight, top = 0, nk = [[0.5, 0.5], [0.2, 0.3], [0.8, 0.7]];
+          for (i = 0; i < 3; i++) { g.readPixels(Math.floor(w * nk[i][0]), Math.floor(h * nk[i][1]), 1, 1, g.RGBA, g.UNSIGNED_BYTE, px); top += px[0] + px[1] + px[2]; }
+          if (!top) return g.isContextLost() ? 'baglam' : 'cizim'; } catch (e) { return 'denetim'; } }
+      return ''; };
+    /* çalışırken çıkan hata: kaynakları bırak, eski CSS denize dön. Yalnız bağlam kaybında (sınırlı sayıda) yeniden denenir; bozuk shader yeniden denenmez */
+    var bitir = function (neden) { if (st !== s) return; sonHata = neden; dur(); if (neden === 'baglam') tekrarDene(H); };
+    var guvenliCiz = function () { if (st !== s) return false;
+      try { kaliteAyar(); ciz(); if (s.denetle) { s.denetle = false; var nd = denetim(false); if (nd) { bitir(nd); return false; } } } catch (e) { bitir('cizim-hatasi'); return false; }
+      return true; };
     /* kalite kademesi: önce çözünürlük, sonra shader düzeyi. Hız geri gelirse bir kademe yukarı denenir */
     var kademe = function (i) { var L = AYAR.kaliteAdim; i = Math.max(0, Math.min(L.length - 1, i)); if (i === s.adim) return false; s.adim = i; s.kalite = L[i][0];
       if (s.mat.defines.KALITE !== L[i][1]) { s.mat.defines.KALITE = L[i][1]; s.mat.needsUpdate = true; s.denetle = true; } boyut(); s.isin = 0; s.top = 0; s.sayac = 0; s.iyi = 0; return true; };
@@ -292,19 +316,21 @@ var Deniz2 = (function () {
         s.onceki = ort; if (!dusur()) s.onceki = 0;
       } else { s.onceki = 0; s.etkisiz = 0; if (s.deneme && ++s.iyi >= 3) { s.deneme = false; s.iyi = 0; }
         else if (!s.deneme && ort < 0.0185 && s.adim > s.tavan && s.yuk < 3 && ++s.iyi >= 12) { s.iyi = 0; s.yuk++; s.deneme = true; yukselt(); } } };
+    /* AYAR.kalite çalışırken değişirse uygula: kademe, sabit/kendiliğinden, shader düzeyi ve çözünürlük birlikte güncellenir; ölçüm geçmişi silinir */
+    var gecmisSil = function () { s.iyi = 0; s.tavan = 0; s.onceki = 0; s.etkisiz = 0; s.deneme = false; s.kilit = false; s.yuk = 0; s.top = 0; s.sayac = 0; s.isin = 0; };
+    var kaliteAyar = function () { var kn = kaliteOku(AYAR.kalite); if (kn === s.kn) return false; s.kn = kn; s.sabit = kn >= 0; gecmisSil(); if (kn >= 0) kademe(kn); return true; };
     var ertele = function () { clearTimeout(s.zam); s.zam = setTimeout(function () { if (st !== s) return; boyut(); kiyi(); }, 120); };
-    /* bağlam kaybı: eski denize dön; harita hâlâ sayfadaysa en çok iki kez yeniden dene. Sekme arkadaysa öne gelmesini bekle */
-    s.kayip = function (e) { e.preventDefault(); dur(); if (yeniden >= 2) return; yeniden++;
-      var b = { zam: 0, gor: null }, dene = function () { if (bek !== b) return; if (st || !H.isConnected) { bekIptal(); return; }
-        if (document.hidden) { if (!b.gor) { b.gor = function () { if (!document.hidden) { document.removeEventListener('visibilitychange', b.gor); b.gor = null; b.zam = setTimeout(dene, 400); } }; document.addEventListener('visibilitychange', b.gor); } return; }
-        bekIptal(); try { baslat(H); } catch (e2) {} };
-      bek = b; b.zam = setTimeout(dene, 1500); };
+    /* bağlam kaybı: eski denize dön, sınırlı sayıda yeniden dene (tekrarDene) */
+    s.kayip = function (e) { e.preventDefault(); sonHata = 'baglam'; dur(); tekrarDene(H); };
     cv.addEventListener('webglcontextlost', s.kayip);
     s.r.off = function () { if (st === s) dur(); };
-    s.dusur = dusur; s.yukselt = yukselt; s.boyut = boyut; s.kiyi = kiyi; s.ciz = ciz; s.olc = olc; s.saglam = saglam;
+    s.dusur = dusur; s.yukselt = yukselt; s.boyut = boyut; s.kiyi = kiyi; s.ciz = ciz; s.olc = olc; s.denetim = denetim; s.kaliteAyar = kaliteAyar; s.guvenliCiz = guvenliCiz;
 
-    try { boyut(); kiyi(); ciz(); if (!saglam(true)) throw 0; } catch (e) { dur(); return false; }
-    H.classList.add('dz'); if (typeof RUN !== 'undefined') RUN.push(s.r);
+    /* ilk kare: kurulum hatası, bağlam kaybı, shader hatası ve boş çizim ayrı ayrı adlandırılır; hepsinde kaynaklar bırakılır, eski CSS deniz kalır */
+    var n0 = ''; try { boyut(); kiyi(); if (st === s) { ciz(); n0 = denetim(true); } else n0 = sonHata || 'kurulum'; } catch (e) { n0 = 'kurulum'; }
+    if (n0) { sonHata = n0; dur(); return false; }
+    sonHata = ''; H.classList.add('dz'); if (typeof RUN !== 'undefined') RUN.push(s.r);
+    s.sagZam = setTimeout(function () { if (st === s) yeniden = 0; }, Math.max(1, +AYAR.kararli || 20) * 1000);
 
     /* görsel sonradan yüklenir ya da değişirse harita yenilenir (yüklenmiş olanlar da dinlenir: görsel kaynağı değişebilir) */
     var gor = H.querySelectorAll('.h2-ada>img');
@@ -324,7 +350,7 @@ var Deniz2 = (function () {
       s.r.raf = requestAnimationFrame(kare);
       var ham = s.son ? (now - s.son) / 1000 : 0.016; s.son = now; s.t += Math.min(0.05, ham) * AYAR.hiz;
       if (s.isin < 30) s.isin++; else if (ham < 0.25) { s.top += ham; if (++s.sayac >= 45) { var ort = s.top / s.sayac; s.top = 0; s.sayac = 0; olc(ort); } }
-      try { ciz(); if (s.denetle) { s.denetle = false; if (!saglam(false)) dur(); } } catch (e) { dur(); }
+      guvenliCiz();
     };
     s.uyan = function () { if (st !== s || !s.canli || s.r.raf || document.hidden || !s.gorunur) return; s.son = 0; s.isin = 0; s.top = 0; s.sayac = 0; s.r.raf = requestAnimationFrame(kare); };
     document.addEventListener('visibilitychange', s.uyan);
@@ -335,8 +361,13 @@ var Deniz2 = (function () {
   /* kıyı haritasını yeniden kur (ada yeri ya da görseli dışarıdan değiştiyse) */
   function yenile() { if (!st) return; var s = st; clearTimeout(s.zam); s.zam = setTimeout(function () { if (st === s) s.kiyi(); }, 60); }
   /* v24: ayarları toplu değiştir ve gerekeni yenile. Örnek: Deniz2.ayarla({ olcek: 1.25, derinlik: 2.5, kopukYogun: 0.8 }) */
-  function ayarla(o) { for (var k in o) if (Object.prototype.hasOwnProperty.call(AYAR, k)) AYAR[k] = o[k]; var s = st; if (!s) return;
-    try { s.boyut(); } catch (e) {} s.kiyi(); }
+  function ayarla(o) { if (!o || typeof o !== 'object') return false;
+    for (var k in o) if (Object.prototype.hasOwnProperty.call(AYAR, k)) {
+      /* kalite: yalnız sonlu sayı kabul edilir (geçersiz değer yok sayılır); eksi = kendiliğinden, fazlası son kademeye sıkıştırılır */
+      if (k === 'kalite') { if (typeof o[k] === 'number' && isFinite(o[k])) AYAR.kalite = kaliteOku(o[k]); } else AYAR[k] = o[k]; }
+    var s = st; if (!s) return true;
+    try { s.kaliteAyar(); s.boyut(); } catch (e) {} s.kiyi(); return true; }
 
-  return { baslat: baslat, dur: dur, yenile: yenile, ayarla: ayarla, AYAR: AYAR, PAL: PAL, surum: 24, _durum: function () { return st; } };
+  return { baslat: baslat, dur: dur, yenile: yenile, ayarla: ayarla, AYAR: AYAR, PAL: PAL, surum: 24, _durum: function () { return st; },
+    _tani: function () { return { sonHata: sonHata, yeniden: yeniden, bekliyor: !!bek }; } };
 })();

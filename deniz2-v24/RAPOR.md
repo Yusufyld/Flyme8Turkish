@@ -2,6 +2,8 @@
 
 Bu klasör bağımsız v24 sürümünü içerir. **Sitenin koduna (`site/index.html`) dokunulmadı.**
 
+> Sonradan yapılan teknik düzeltme turu (smoothstep, çalışırken kalite ayarı, hata denetimi, bağlam sayacı) için `DUZELTME.md` dosyasına bak. Aşağıdaki "shader denetimi" ve "bağlam kaybı" anlatımı o turdan önceki hâli gösterir.
+
 | Dosya | Ne |
 |---|---|
 | `deniz2-v24.js` | Geliştirilmiş tam kod (v23 ile aynı yere, aynı arayüzle oturur) |
@@ -170,6 +172,7 @@ node ek.js cikti      # WebGL1, bozuk shader, bağlam kaybı
 node ek2.js cikti     # kalite kademeleri, boyut değişimi, üst üste baslat, kenar
 node t24.js           # v23 ile karşılaştırma: hiza, ölçek, hız, ağ, kalite mantığı
 node t24b.js          # yüzen ada hizası, güçlü dalgada kenar
+node t24c.js          # düzeltme turu: WebGL1/2 derleme, kalite ayarı, hata denetimi, bağlam kaybı, temizlik
 ```
 
 **Geçen denetimler:** sözdizimi; üç shader düzeyinin derlenmesi; WebGL2 ve WebGL1; üç palet; bozuk shader'da eski CSS denize dönüş; WebGL yokken dönüş; bağlam kaybı ve kendiliğinden yeniden açılma; beş kez üst üste `baslat` (tek tuval, tek döngü); `dur()` iki kez; harita sayfadan kaldırılınca kaynakların bırakılması; ekran dışında döngünün durması; boyut değişimi; kenar açılması (dalga 1 ve 2,5); kalite iniş-çıkış mantığı; sabit kalite; `ayarla()`.

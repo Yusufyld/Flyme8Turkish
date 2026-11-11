@@ -2,7 +2,7 @@ const { chromium } = require('playwright'); const out = process.argv[2];
 (async () => { const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const c = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 }); const pg = await c.newPage(); const m = [];
   pg.on('console', x => { if (x.type() === 'error') m.push(x.text().slice(0, 200)); }); pg.on('pageerror', e => m.push('ERR ' + e));
-  await pg.goto('http://127.0.0.1:8765/test/gun.html'); await pg.waitForTimeout(2500);
+  await pg.goto((process.env.TABAN || 'http://127.0.0.1:8765/bekleyen/deniz2-v24/test/sayfa/') + 'gun.html'); await pg.waitForTimeout(2500);
   // 1) kalite kademeleri: her shader düzeyi derleniyor mu
   for (let i = 0; i < 6; i++) { const r = await pg.evaluate(async () => { const s = Deniz2._durum(); if (!s) return 'KAPANDI'; s.dusur(); await new Promise(r => setTimeout(r, 500)); const s2 = Deniz2._durum(); return s2 ? { adim: s2.adim, kalite: s2.kalite, K: s2.mat.defines.KALITE, cv: s2.cv.width + 'x' + s2.cv.height, prog: s2.renderer.info.programs.length, bozuk: s2.renderer.info.programs.some(p => p.diagnostics && p.diagnostics.runnable === false) } : 'KAPANDI'; }); console.log('kalite', JSON.stringify(r)); }
   await pg.screenshot({ path: out + '/dusuk-kalite.png', fullPage: true });
